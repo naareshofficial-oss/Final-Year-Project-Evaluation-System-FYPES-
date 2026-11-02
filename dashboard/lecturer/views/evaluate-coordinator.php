@@ -1,0 +1,38 @@
+<?php
+$selectedId=(int)($_GET['eval_id']??0);$selectedStudentId=(int)($_GET['student_id']??0);
+$myEvals=safeRun($pdo,"SELECT ev.*,s.matric_number,s.project_title,s.programme_type,s.semester_id,u.full_name
+ FROM evaluations ev JOIN students s ON s.id=ev.student_id JOIN users u ON u.id=s.user_id
+ WHERE ev.evaluator_id=? AND ev.evaluator_role='coordinator' AND ev.semester_id=? AND s.semester_id=ev.semester_id
+ ORDER BY FIELD(ev.status,'reopened','pending','completed'),u.full_name",[$lecturerId,$currentSemesterId])->fetchAll();
+if(!$selectedId&&$selectedStudentId){foreach($myEvals as $x)if((int)$x['student_id']===$selectedStudentId)$selectedId=(int)$x['id'];}
+$selected=null;$criteria=[];$scoreMap=[];$components=[];$final=null;
+foreach($myEvals as $x)if((int)$x['id']===$selectedId)$selected=$x;
+if($selected){
+ $criteria=safeRun($pdo,'SELECT * FROM rubric_criteria WHERE rubric_id=? ORDER BY sort_order,id',[$selected['rubric_id']])->fetchAll();
+ $scoreMap=array_column(safeRun($pdo,'SELECT criteria_id,score FROM evaluation_scores WHERE evaluation_id=?',[$selectedId])->fetchAll(),'score','criteria_id');
+ $components=safeRun($pdo,"SELECT ev.id,ev.evaluator_role,ev.total_score,ev.status,da.total_score detailed_total_score,(SELECT COALESCE(SUM(dc.max_marks),0) FROM detailed_rubric_criteria dc WHERE dc.detailed_rubric_id=dr.id) detailed_max_score FROM evaluations ev LEFT JOIN detailed_assessments da ON da.evaluation_id=ev.id LEFT JOIN detailed_rubrics dr ON dr.id=da.detailed_rubric_id WHERE ev.student_id=? AND ev.semester_id=? ORDER BY FIELD(ev.evaluator_role,'supervisor','report_panel','presentation_panel','coordinator')",[$selected['student_id'],$selected['semester_id']])->fetchAll();
+ $final=safeRun($pdo,'SELECT * FROM final_results WHERE student_id=? AND semester_id=? ORDER BY id DESC LIMIT 1',[$selected['student_id'],$selected['semester_id']])->fetch();
+}
+$requiredRoles=['supervisor','report_panel','presentation_panel','coordinator'];
+$componentMap=[];foreach($components as $component)$componentMap[$component['evaluator_role']]=$component;
+$complete=true;foreach($requiredRoles as $requiredRole)if(!isset($componentMap[$requiredRole])||$componentMap[$requiredRole]['status']!=='completed')$complete=false;
+?>
+<div class="row g-3"><div class="col-lg-4"><div class="card-fy"><div class="section-title">Programme Students</div>
+<?php foreach($myEvals as $ev): ?><a href="?view=evaluate-coordinator&eval_id=<?= $ev['id'] ?>" class="d-block text-decoration-none p-2 rounded-3 mb-2" style="border:1.5px solid <?= $selectedId===(int)$ev['id']?'var(--theme)':'#eee' ?>"><div class="d-flex justify-content-between"><strong class="small text-dark"><?= e($ev['full_name']) ?></strong><span class="badge-fy badge-<?= statusBadgeColor($ev['status']) ?>"><?= e(ucfirst($ev['status'])) ?></span></div><div class="small text-muted"><?= programmeTypeLabel($ev['programme_type']) ?></div></a><?php endforeach; ?>
+<?php if(!$myEvals): ?><p class="small text-muted">No coordinator evaluations assigned in the current semester.</p><?php endif; ?></div></div>
+<div class="col-lg-8"><?php if(!$selected): ?><div class="card-fy text-center py-5 text-muted">Select a student to evaluate and manage the final result.</div><?php else: ?>
+<div class="card-fy mb-3"><div class="d-flex justify-content-between"><div><div class="section-title mb-0"><?= e($selected['full_name']) ?></div><div class="small text-muted"><?= e($selected['matric_number']) ?> · <?= e($selected['project_title']) ?></div></div><span class="badge-fy badge-info"><?= programmeTypeLabel($selected['programme_type']) ?></span></div>
+<form method="post" class="mt-3"><?= csrfField() ?><input type="hidden" name="action" value="submit_evaluation"><input type="hidden" name="evaluation_id" value="<?= $selected['id'] ?>"><input type="hidden" name="back_to" value="evaluate-coordinator">
+<?php foreach($criteria as $c): ?><label class="form-label small fw-semibold"><?= e($c['criteria_name']) ?> (max <?= e((string)$c['weight']) ?>)</label><input required <?= $selected['status']==='completed'?'disabled':'' ?> type="number" min="0" max="<?= e((string)$c['weight']) ?>" step="0.5" name="scores[<?= $c['id'] ?>]" value="<?= e($scoreMap[$c['id']]??'') ?>" class="form-control-fy w-100 mb-3"><?php endforeach; ?>
+<label class="form-label small fw-semibold">Comments</label><textarea <?= $selected['status']==='completed'?'disabled':'' ?> name="comments" class="form-control-fy w-100 mb-3" rows="3"><?= e($selected['comments']??'') ?></textarea>
+<?php if($selected['status']!=='completed'): ?><button class="btn-fy-orange">Submit and lock coordinator evaluation</button><?php else: ?><div class="alert alert-success mb-0">Coordinator evaluation completed and locked.</div><?php endif; ?></form></div>
+<?php $backTo='evaluate-coordinator'; require __DIR__.'/detailed-assessment.php'; ?>
+<div class="card-fy mt-3"><div class="section-title">Final Result Control</div><div class="row g-2 mb-3">
+<?php foreach($requiredRoles as $role):$c=$componentMap[$role]??null;$max=expectedRubricTotal($selected['programme_type'],$role); ?><div class="col-sm-6"><div class="border rounded-3 p-3"><div class="d-flex justify-content-between"><strong class="small"><?= roleLabel($role) ?></strong><span class="badge-fy badge-<?= statusBadgeColor($c['status']??'pending') ?>"><?= e(ucfirst($c['status']??'not assigned')) ?></span></div><div class="mt-2 fw-bold"><?= $c&&$c['status']==='completed'?e((string)$c['total_score']).' / '.$max:'Pending' ?></div>
+<?php if($c&&$c['detailed_total_score']!==null): ?><div class="small text-muted mt-1">Detailed staff score: <?= e(number_format((float)$c['detailed_total_score'],2)) ?> / <?= e(number_format((float)$c['detailed_max_score'],2)) ?></div><?php else: ?><div class="small text-muted mt-1">Detailed staff score: Not submitted</div><?php endif; ?>
+<?php if($c&&$c['status']==='completed'&&(!$final||$final['status']!=='released')): ?><form method="post" class="mt-2" onsubmit="return confirm('Reopen this evaluation for correction? Any unreleased finalized result will be cleared.')"><?= csrfField() ?><input type="hidden" name="action" value="reopen_evaluation"><input type="hidden" name="evaluation_id" value="<?= $c['id'] ?>"><button class="btn btn-sm btn-outline-warning">Reopen</button></form><?php endif; ?>
+</div></div><?php endforeach; ?></div>
+<?php if($final): ?><div class="alert <?= $final['status']==='released'?'alert-success':'alert-warning' ?>"><strong><?= e((string)$final['final_score']) ?>/100 · Grade <?= e($final['grade']) ?></strong><div class="small">Status: <?= e(ucfirst($final['status'])) ?></div></div><?php endif; ?>
+<div class="d-flex gap-2 flex-wrap"><?php if($complete&&(!$final||$final['status']!=='released')): ?><form method="post"><?= csrfField() ?><input type="hidden" name="action" value="finalize_result"><input type="hidden" name="student_id" value="<?= $selected['student_id'] ?>"><button class="btn-fy-outline">Calculate and finalize</button></form><?php endif; ?><?php if($final&&$final['status']==='finalized'): ?><form method="post" onsubmit="return confirm('Release this final result to the student? Released results cannot be reopened from this screen.')"><?= csrfField() ?><input type="hidden" name="action" value="release_result"><input type="hidden" name="student_id" value="<?= $selected['student_id'] ?>"><button class="btn-fy-orange">Release to student</button></form><?php endif; ?></div>
+<?php if(!$complete): ?><p class="small text-muted mb-0">All four required components must exist and be completed before finalization.</p><?php endif; ?></div>
+<?php endif; ?></div></div>

@@ -1,0 +1,7 @@
+<?php
+$allSubs=safeRun($pdo,"SELECT sub.*,sc.name cat_name,sc.programme_type FROM submissions sub JOIN submission_categories sc ON sc.id=sub.category_id WHERE sub.student_id=? AND sub.semester_id<=>? ORDER BY sub.uploaded_at DESC",[$studentId,$studentSemesterId])->fetchAll();
+?>
+<div class="card-fy"><div class="section-title">Submission History</div><table class="table-fy"><thead><tr><th>Category</th><th>Programme</th><th>File</th><th>Status</th><th>Uploaded</th><th></th></tr></thead><tbody>
+<?php foreach($allSubs as $s): ?><tr><td><?= e($s['cat_name']) ?></td><td class="small"><?= programmeTypeLabel($s['programme_type']) ?></td><td class="small"><?= e($s['file_name']) ?></td><td><span class="badge-fy badge-<?= statusBadgeColor($s['status']) ?>"><?= e(submissionStatusLabel($s['status'])) ?></span></td><td class="small text-muted"><?= date('M j, Y g:i A',strtotime($s['uploaded_at'])) ?></td><td><?php if($s['file_path']): ?><a target="_blank" class="btn-fy-outline btn-sm" href="<?= secureFileUrl((int)$s['id'],'submission') ?>">View</a><?php elseif($s['google_doc_link']): ?><a target="_blank" rel="noopener" class="btn-fy-outline btn-sm" href="<?= e($s['google_doc_link']) ?>">Open</a><?php endif; ?></td></tr><?php endforeach; ?>
+<?php if(empty($allSubs)): ?><tr><td colspan="6" class="text-center text-muted py-4">No submission history.</td></tr><?php endif; ?>
+</tbody></table></div>
