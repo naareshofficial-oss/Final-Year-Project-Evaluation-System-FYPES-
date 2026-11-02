@@ -1,0 +1,3 @@
+/includes/local_config.php
+/uploads/*
+!/uploads/.htaccess
