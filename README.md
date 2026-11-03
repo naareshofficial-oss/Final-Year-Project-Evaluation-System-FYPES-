@@ -129,8 +129,4 @@ The included assistant is a role-aware FAQ matcher, not a generative AI model. I
 
 Do not reuse the old database unchanged. The two-panel model adds and changes tables, columns, roles, evaluations, reviews, semester links and result records. Use a fresh database import from the included SQL file for the most reliable installation.
 
----
 
-## Latest workflow build
-
-See `IMPLEMENTED_15_REQUIREMENTS.md` and `GOOGLE_LOGIN_AND_EMAIL_SETUP.md` for the latest Google login, SMTP, global dark mode, user management, supervisor-capacity, deadline reopening, and detailed-rubric workflows. Use a fresh import of `database/fypes_db.sql` for this build.
